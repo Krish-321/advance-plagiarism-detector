@@ -1,0 +1,16 @@
+{
+  "name": "plagiarism-final",
+  "version": "1.0.0",
+  "description": "Full-stack MERN plagiarism and AI-text detection project",
+  "main": "index.js",
+  "scripts": {
+    "client:dev": "npm run dev --prefix client",
+    "server:dev": "npm run dev --prefix server",
+    "client:test": "npm run test --prefix client",
+    "server:test": "npm run test --prefix server"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
