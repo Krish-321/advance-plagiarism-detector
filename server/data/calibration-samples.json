@@ -1,0 +1,17 @@
+[
+  {
+    "id": "human-1",
+    "label": "human",
+    "text": "I wrote this reflection after attending a workshop. Some parts are rough because I was drafting quickly, but the ideas are my own."
+  },
+  {
+    "id": "ai-1",
+    "label": "ai",
+    "text": "In conclusion, this comprehensive analysis demonstrates the transformative potential of technology across industries while emphasizing balanced adoption."
+  },
+  {
+    "id": "copied-1",
+    "label": "copied",
+    "text": "Academic plagiarism detection often compares overlapping n-grams, semantic similarity, and citation patterns to identify copied content."
+  }
+]
