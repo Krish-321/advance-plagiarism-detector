@@ -1,5 +1,5 @@
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+  import.meta.env.VITE_API_BASE_URL || "https://advance-plagiarism-detector.onrender.com/api";
 
 export async function analyzeText(text) {
   const response = await fetch(`${API_BASE_URL}/analyze`, {
