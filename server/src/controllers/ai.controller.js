@@ -1,4 +1,5 @@
 const { analyzeAiLikelihood } = require("../services/ai/aiDetection.service");
+const { classifyWithExternalProvider } = require("../services/ai/providerFallback.service");
 const { parseFileToText } = require("../services/fileParser.service");
 
 function validateText(text) {
@@ -9,17 +10,44 @@ function validateText(text) {
 }
 
 async function detectAiFromText(req, res) {
-  const { text } = req.body || {};
+  const { text, provider = "local" } = req.body || {};
   const error = validateText(text);
   if (error) return res.status(400).json({ error });
 
-  const aiLikelihood = await analyzeAiLikelihood(text);
+  let aiLikelihood;
+  let providerUsed = "local-heuristic";
+
+  // Use external provider if specified
+  if (provider === "gemini" || provider === "chatgpt") {
+    const externalResult = await classifyWithExternalProvider(text);
+    if (externalResult) {
+      aiLikelihood = {
+        score: externalResult.score,
+        label: externalResult.score >= 55 ? "AI Generated" : "Human Written",
+        signals: [],
+        providerUsed: provider,
+      };
+      providerUsed = provider;
+    }
+  }
+
+  // Fall back to local heuristic if no external result
+  if (!aiLikelihood) {
+    aiLikelihood = await analyzeAiLikelihood(text);
+    providerUsed = aiLikelihood.providerUsed || "local-heuristic";
+  }
+
   return res.json({
     aiLikelihood: {
       score: aiLikelihood.score,
       label: aiLikelihood.label,
+      ai_score: aiLikelihood.ai_score || aiLikelihood.score,
       signals: aiLikelihood.signals,
-      providerUsed: aiLikelihood.providerUsed,
+      providerUsed: providerUsed,
+    },
+    ai_detection: {
+      ai_score: aiLikelihood.ai_score || aiLikelihood.score,
+      label: aiLikelihood.label,
     },
   });
 }
@@ -29,13 +57,40 @@ async function detectAiFromFile(req, res) {
     const text = await parseFileToText(req.file);
     const error = validateText(text);
     if (error) return res.status(400).json({ error });
-    const aiLikelihood = await analyzeAiLikelihood(text);
+
+    const { provider = "local" } = req.body || {};
+    let aiLikelihood;
+    let providerUsed = "local-heuristic";
+
+    if (provider === "gemini" || provider === "chatgpt") {
+      const externalResult = await classifyWithExternalProvider(text);
+      if (externalResult) {
+        aiLikelihood = {
+          score: externalResult.score,
+          label: externalResult.score >= 55 ? "AI Generated" : "Human Written",
+          signals: [],
+          providerUsed: provider,
+        };
+        providerUsed = provider;
+      }
+    }
+
+    if (!aiLikelihood) {
+      aiLikelihood = await analyzeAiLikelihood(text);
+      providerUsed = aiLikelihood.providerUsed || "local-heuristic";
+    }
+
     return res.json({
       aiLikelihood: {
         score: aiLikelihood.score,
         label: aiLikelihood.label,
+        ai_score: aiLikelihood.ai_score || aiLikelihood.score,
         signals: aiLikelihood.signals,
-        providerUsed: aiLikelihood.providerUsed,
+        providerUsed: providerUsed,
+      },
+      ai_detection: {
+        ai_score: aiLikelihood.ai_score || aiLikelihood.score,
+        label: aiLikelihood.label,
       },
     });
   } catch (err) {

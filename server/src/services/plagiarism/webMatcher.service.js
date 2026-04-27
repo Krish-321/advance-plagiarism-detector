@@ -27,23 +27,39 @@ async function findWebMatches(chunk, minSimilarity = 0.1) {
 }
 
 async function searchGoogle(query) {
-  const endpoint = "https://www.google.com/search";
-  const response = await axios.get(endpoint, {
-    params: { q: query, num: 3, hl: "en" },
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-      Accept: "text/html",
-    },
-    timeout: 4000,
-  });
-  const html = response.data || "";
-  const matches = [...html.matchAll(/<a href="\/url\?q=([^"&]+)[^"]*".*?<h3[^>]*>(.*?)<\/h3>/g)];
-  return matches.slice(0, 3).map((entry) => ({
-    url: decodeURIComponent(entry[1]),
-    title: entry[2].replace(/<[^>]*>/g, ""),
-    snippet: entry[2].replace(/<[^>]*>/g, ""),
-  }));
+  // Use SerpAPI-like free JSON endpoint or fallback to Wikipedia for now
+  // Direct Google scraping is blocked by CORS and anti-bot measures
+  // Try using DuckDuckGo as an alternative free search
+  try {
+    const endpoint = "https://duckduckgo.com/html/";
+    const response = await axios.get(endpoint, {
+      params: { q: query, format: "json" },
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        Accept: "application/json",
+      },
+      timeout: 5000,
+    });
+    
+    // Parse the HTML response for results
+    const html = response.data || "";
+    const results = [];
+    const matches = html.matchAll(/<a class="result__a" href="([^"]+)"[^>]*>([^<]+)<\/a>.*?<a class="result__snippet"[^>]*>([^<]+)<\/a>/g);
+    
+    for (const match of matches) {
+      results.push({
+        url: match[1],
+        title: match[2].replace(/<[^>]*>/g, ""),
+        snippet: match[3].replace(/<[^>]*>/g, ""),
+      });
+    }
+    
+    return results.slice(0, 3);
+  } catch (error) {
+    console.error("Google search error:", error.message);
+    // Fallback to Wikipedia if Google fails
+    return searchWikipedia(query);
+  }
 }
 
 async function findWebMatchesBySource(chunk, source = "wikipedia", minSimilarity = 0.1) {
@@ -55,13 +71,15 @@ async function findWebMatchesBySource(chunk, source = "wikipedia", minSimilarity
 
     return rawResults
       .map((result) => {
-        const cleanSnippet = (result.snippet || "").replace(/<[^>]*>/g, "");
+        const cleanSnippet = (result.snippet || result.extract || "").replace(/<[^>]*>/g, "");
         const title = (result.title || "").replace(/<[^>]*>/g, "");
         const comparisonText = `${title} ${cleanSnippet}`.trim();
         const url =
           source === "google"
             ? result.url
-            : `https://en.wikipedia.org/wiki/${encodeURIComponent((result.title || "").replaceAll(" ", "_"))}`;
+            : result.pageid
+              ? `https://en.wikipedia.org/wiki?curid=${result.pageid}`
+              : `https://en.wikipedia.org/wiki/${encodeURIComponent((result.title || "").replaceAll(" ", "_"))}`;
         return {
           source: url,
           matchedSnippet: cleanSnippet,

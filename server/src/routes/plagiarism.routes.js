@@ -5,6 +5,7 @@ const {
   detectPlagiarismFromFile,
   compareUploadedDocuments,
   compareTextDocuments,
+  generatePlagiarismReport,
 } = require("../controllers/plagiarism.controller");
 
 const router = express.Router();
@@ -21,5 +22,6 @@ router.post(
   ]),
   compareUploadedDocuments
 );
+router.post("/generate-report", generatePlagiarismReport);
 
 module.exports = { plagiarismRouter: router };

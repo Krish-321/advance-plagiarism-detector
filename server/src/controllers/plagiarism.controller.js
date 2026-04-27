@@ -1,6 +1,10 @@
 const { analyzePlagiarism } = require("../services/plagiarism/plagiarism.service");
 const { parseFileToText } = require("../services/fileParser.service");
-const { compareAllMetrics } = require("../services/plagiarism/similarityMetrics.service");
+const PDFDocument = require("pdfkit");
+const {
+  compareAllMetrics,
+  compareSentenceMatches,
+} = require("../services/plagiarism/similarityMetrics.service");
 
 function validateText(text) {
   if (!text || typeof text !== "string") return "text is required and must be a string";
@@ -17,6 +21,40 @@ function labelFromScore(score) {
   if (score >= 70) return "high";
   if (score >= 40) return "medium";
   return "low";
+}
+
+function buildSentenceComparisonResponse(text1, text2, summaryText) {
+  const metrics = compareAllMetrics(text1, text2);
+  const sentenceMatches = compareSentenceMatches(text1, text2, 0.7);
+  const normalizedMatches = sentenceMatches.map((match) => ({
+    sentence: match.sentence,
+    similarity: Number(match.similarity.toFixed(2)),
+  }));
+  const totalSimilarity = normalizedMatches.reduce((total, match) => total + match.similarity, 0);
+  const overallSimilarity = Number(
+    (normalizedMatches.length ? totalSimilarity / normalizedMatches.length : 0).toFixed(2)
+  );
+  const score = Math.round(Math.min(100, overallSimilarity));
+
+  return {
+    score,
+    label: labelFromScore(score),
+    summary: {
+      cosine: Number((metrics.cosine * 100).toFixed(2)),
+      jaccard: Number((metrics.jaccard * 100).toFixed(2)),
+      tfidf: Number((metrics.tfidf * 100).toFixed(2)),
+    },
+    overall_similarity: overallSimilarity,
+    matches: normalizedMatches,
+    // Kept for backward compatibility with existing frontend consumers.
+    matchedSentences: sentenceMatches.map((match) => ({
+      sentence1: match.sentence1,
+      sentence2: match.sentence2,
+      similarity: match.similarity,
+    })),
+    overallSimilarity,
+    verdict: summaryText(score),
+  };
 }
 
 async function detectPlagiarismFromText(req, res) {
@@ -61,25 +99,17 @@ async function compareUploadedDocuments(req, res) {
       return res.status(400).json({ error: originalError || suspectError });
     }
 
-    const metrics = compareAllMetrics(originalText, suspectText);
-    const score = Math.round(Math.min(100, metrics.aggregate * 100));
-
     return res.json({
-      comparison: {
-        score,
-        label: labelFromScore(score),
-        metrics: {
-          cosine: Math.round(metrics.cosine * 100),
-          jaccard: Math.round(metrics.jaccard * 100),
-          tfidf: Math.round(metrics.tfidf * 100),
-        },
-        summary:
+      comparison: buildSentenceComparisonResponse(
+        originalText,
+        suspectText,
+        (score) =>
           score >= 70
             ? "High overlap between original and suspect documents."
             : score >= 40
               ? "Moderate overlap detected; review both documents manually."
               : "Low overlap between uploaded documents.",
-      },
+      ),
     });
   } catch (err) {
     return res
@@ -96,25 +126,59 @@ async function compareTextDocuments(req, res) {
     return res.status(400).json({ error: originalError || suspectError });
   }
 
-  const metrics = compareAllMetrics(originalText, suspectText);
-  const score = Math.round(Math.min(100, metrics.aggregate * 100));
   return res.json({
-    comparison: {
-      score,
-      label: labelFromScore(score),
-      metrics: {
-        cosine: Math.round(metrics.cosine * 100),
-        jaccard: Math.round(metrics.jaccard * 100),
-        tfidf: Math.round(metrics.tfidf * 100),
-      },
-      summary:
+    comparison: buildSentenceComparisonResponse(
+      originalText,
+      suspectText,
+      (score) =>
         score >= 70
           ? "High overlap between original and suspect texts."
           : score >= 40
             ? "Moderate overlap detected; review both texts manually."
             : "Low overlap between provided texts.",
-    },
+    ),
   });
+}
+
+function generatePlagiarismReport(req, res) {
+  const { overall_similarity: overallSimilarityRaw, matches } = req.body || {};
+  const overallSimilarity = Number(overallSimilarityRaw);
+  const safeMatches = Array.isArray(matches) ? matches : [];
+
+  if (!Number.isFinite(overallSimilarity)) {
+    return res.status(400).json({ error: "overall_similarity must be a number" });
+  }
+
+  const doc = new PDFDocument({ margin: 48 });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", 'attachment; filename="plagiarism-report.pdf"');
+  doc.pipe(res);
+
+  doc.fontSize(20).text("Plagiarism Report", { align: "center" });
+  doc.moveDown(0.8);
+  doc
+    .fontSize(12)
+    .fillColor("#111827")
+    .text(`Overall Similarity: ${overallSimilarity.toFixed(2)}%`);
+  doc.moveDown(0.8);
+  doc.fontSize(14).text("Matched Sentences", { underline: true });
+  doc.moveDown(0.5);
+
+  if (!safeMatches.length) {
+    doc.fontSize(11).text("No matched sentences above threshold.");
+  } else {
+    safeMatches.forEach((match, index) => {
+      const sentence = String(match?.sentence || "").trim() || "N/A";
+      const similarity = Number(match?.similarity);
+      const similarityText = Number.isFinite(similarity) ? `${similarity.toFixed(2)}%` : "N/A";
+      doc.fontSize(11).fillColor("#111827").text(`${index + 1}. ${sentence}`);
+      doc.fontSize(10).fillColor("#475569").text(`Similarity: ${similarityText}`);
+      doc.moveDown(0.4);
+    });
+  }
+
+  doc.end();
+  return null;
 }
 
 module.exports = {
@@ -122,4 +186,5 @@ module.exports = {
   detectPlagiarismFromFile,
   compareUploadedDocuments,
   compareTextDocuments,
+  generatePlagiarismReport,
 };

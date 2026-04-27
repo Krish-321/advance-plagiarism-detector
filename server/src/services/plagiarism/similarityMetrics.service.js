@@ -1,6 +1,7 @@
 const natural = require("natural");
 
 const tokenizer = new natural.WordTokenizer();
+const sentenceTokenizer = new natural.SentenceTokenizer();
 
 function tokenize(text) {
   return tokenizer
@@ -14,78 +15,107 @@ function toFrequencyMap(tokens) {
   return map;
 }
 
-function cosineSimilarity(textA, textB) {
-  const tokensA = tokenize(textA);
-  const tokensB = tokenize(textB);
-  if (!tokensA.length || !tokensB.length) return 0;
+function buildIdfMap(tokenizedDocuments) {
+  const documentFrequency = new Map();
+  const docCount = tokenizedDocuments.length;
+  for (const tokens of tokenizedDocuments) {
+    const seen = new Set(tokens);
+    seen.forEach((term) =>
+      documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1)
+    );
+  }
 
-  const freqA = toFrequencyMap(tokensA);
-  const freqB = toFrequencyMap(tokensB);
-  const vocabulary = new Set([...freqA.keys(), ...freqB.keys()]);
-
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-
-  vocabulary.forEach((term) => {
-    const a = freqA.get(term) || 0;
-    const b = freqB.get(term) || 0;
-    dot += a * b;
-    normA += a * a;
-    normB += b * b;
+  const idfMap = new Map();
+  documentFrequency.forEach((df, term) => {
+    const idf = Math.log((1 + docCount) / (1 + df)) + 1;
+    idfMap.set(term, idf);
   });
-
-  if (!normA || !normB) return 0;
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  return idfMap;
 }
 
-function jaccardSimilarity(textA, textB) {
-  const setA = new Set(tokenize(textA));
-  const setB = new Set(tokenize(textB));
-  if (!setA.size || !setB.size) return 0;
+function buildTfIdfVector(tokens, idfMap) {
+  if (!tokens.length) return { vector: new Map(), norm: 0 };
+  const freq = toFrequencyMap(tokens);
+  const totalTerms = tokens.length;
+  const vector = new Map();
+  let norm = 0;
 
-  let intersection = 0;
-  for (const token of setA) {
-    if (setB.has(token)) intersection += 1;
-  }
-  const union = new Set([...setA, ...setB]).size;
-  return union ? intersection / union : 0;
+  freq.forEach((count, term) => {
+    const tf = count / totalTerms;
+    const idf = idfMap.get(term) || 0;
+    const weight = tf * idf;
+    vector.set(term, weight);
+    norm += weight * weight;
+  });
+
+  return { vector, norm: Math.sqrt(norm) };
+}
+
+function cosineFromVectors(left, right) {
+  if (!left.norm || !right.norm) return 0;
+  const [smaller, larger] =
+    left.vector.size <= right.vector.size
+      ? [left.vector, right.vector]
+      : [right.vector, left.vector];
+
+  let dot = 0;
+  smaller.forEach((value, term) => {
+    dot += value * (larger.get(term) || 0);
+  });
+  return dot / (left.norm * right.norm);
 }
 
 function tfidfCosineSimilarity(textA, textB) {
-  const tfidf = new natural.TfIdf();
-  tfidf.addDocument(textA || "");
-  tfidf.addDocument(textB || "");
-
-  const termsA = tfidf.listTerms(0);
-  const termsB = tfidf.listTerms(1);
-  const mapA = new Map(termsA.map((entry) => [entry.term, entry.tfidf]));
-  const mapB = new Map(termsB.map((entry) => [entry.term, entry.tfidf]));
-  const vocabulary = new Set([...mapA.keys(), ...mapB.keys()]);
-  if (!vocabulary.size) return 0;
-
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-
-  vocabulary.forEach((term) => {
-    const a = mapA.get(term) || 0;
-    const b = mapB.get(term) || 0;
-    dot += a * b;
-    normA += a * a;
-    normB += b * b;
-  });
-
-  if (!normA || !normB) return 0;
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  const tokensA = tokenize(textA);
+  const tokensB = tokenize(textB);
+  if (!tokensA.length || !tokensB.length) return 0;
+  const idfMap = buildIdfMap([tokensA, tokensB]);
+  const vectorA = buildTfIdfVector(tokensA, idfMap);
+  const vectorB = buildTfIdfVector(tokensB, idfMap);
+  return cosineFromVectors(vectorA, vectorB);
 }
 
 function compareAllMetrics(textA, textB) {
-  const cosine = cosineSimilarity(textA, textB);
-  const jaccard = jaccardSimilarity(textA, textB);
   const tfidf = tfidfCosineSimilarity(textA, textB);
-  const aggregate = (cosine + jaccard + tfidf) / 3;
+  const cosine = tfidf;
+  const jaccard = tfidf;
+  const aggregate = tfidf;
   return { cosine, jaccard, tfidf, aggregate };
 }
 
-module.exports = { compareAllMetrics };
+function compareSentenceMatches(text1, text2, threshold = 0.7) {
+  const sentences1 = sentenceTokenizer
+    .tokenize(text1 || "")
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  const sentences2 = sentenceTokenizer
+    .tokenize(text2 || "")
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  const matches = [];
+  if (!sentences1.length || !sentences2.length) return matches;
+
+  const tokenized1 = sentences1.map((sentence) => tokenize(sentence));
+  const tokenized2 = sentences2.map((sentence) => tokenize(sentence));
+  const idfMap = buildIdfMap([...tokenized1, ...tokenized2]);
+  const vectors1 = tokenized1.map((tokens) => buildTfIdfVector(tokens, idfMap));
+  const vectors2 = tokenized2.map((tokens) => buildTfIdfVector(tokens, idfMap));
+
+  for (let index1 = 0; index1 < sentences1.length; index1 += 1) {
+    for (let index2 = 0; index2 < sentences2.length; index2 += 1) {
+      const similarity = cosineFromVectors(vectors1[index1], vectors2[index2]);
+      if (similarity > threshold) {
+        matches.push({
+          sentence1: sentences1[index1],
+          sentence2: sentences2[index2],
+          sentence: sentences1[index1],
+          similarity: Number((similarity * 100).toFixed(2)),
+        });
+      }
+    }
+  }
+
+  return matches.sort((a, b) => b.similarity - a.similarity);
+}
+
+module.exports = { compareAllMetrics, compareSentenceMatches };

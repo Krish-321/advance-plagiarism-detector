@@ -33,8 +33,13 @@ async function runAnalysis(text) {
     aiLikelihood: {
       score: aiLikelihood.score,
       label: aiLikelihood.label,
+      ai_score: aiLikelihood.ai_score,
       signals: aiLikelihood.signals,
       providerUsed: aiLikelihood.providerUsed,
+    },
+    ai_detection: {
+      ai_score: aiLikelihood.ai_score,
+      label: aiLikelihood.label,
     },
     overall: {
       riskSummary: riskSummary(plagiarism.score, aiLikelihood.score),

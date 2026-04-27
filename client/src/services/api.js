@@ -24,18 +24,19 @@ async function parseResponse(response, fallbackMessage) {
   return data;
 }
 
-export async function detectAiText(text) {
+export async function detectAiText(text, provider = "local") {
   const response = await fetch(`${API_BASE_URL}/ai/text`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, provider }),
   });
   return parseResponse(response, "Failed to detect AI from text");
 }
 
-export async function detectAiFile(file) {
+export async function detectAiFile(file, provider = "local") {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("provider", provider);
   const response = await fetch(`${API_BASE_URL}/ai/file`, {
     method: "POST",
     body: formData,
@@ -81,6 +82,30 @@ export async function comparePlagiarismTexts(originalText, suspectText) {
     body: JSON.stringify({ originalText, suspectText }),
   });
   return parseResponse(response, "Failed to compare text documents");
+}
+
+export async function downloadPlagiarismReport(resultData) {
+  const response = await fetch(`${API_BASE_URL}/plagiarism/generate-report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      overall_similarity: Number(resultData?.overall_similarity || 0),
+      matches: Array.isArray(resultData?.matches) ? resultData.matches : [],
+    }),
+  });
+
+  if (!response.ok) {
+    let errorMessage = "Failed to generate report";
+    try {
+      const data = await response.json();
+      errorMessage = data.error || errorMessage;
+    } catch (_err) {
+      // Ignore JSON parse errors and use fallback message.
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.blob();
 }
 
 export async function analyzeFile(file) {
