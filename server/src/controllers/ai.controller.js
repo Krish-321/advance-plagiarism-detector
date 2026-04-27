@@ -98,4 +98,19 @@ async function detectAiFromFile(req, res) {
   }
 }
 
-module.exports = { detectAiFromText, detectAiFromFile };
+function checkAI(req, res) {
+  const { text } = req.body || {};
+  const error = validateText(text);
+  if (error) return res.status(400).json({ error });
+
+  const { detectAI } = require("../services/ai/aiDetection.service");
+  const result = detectAI(text);
+
+  res.json({
+    aiScore: result.ai_score,
+    verdict: result.label,
+    signals: result.signals,
+  });
+}
+
+module.exports = { detectAiFromText, detectAiFromFile, checkAI };

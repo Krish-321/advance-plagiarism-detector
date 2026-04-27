@@ -5,23 +5,9 @@ const {
   compareAllMetrics,
   compareSentenceMatches,
 } = require("../services/plagiarism/similarityMetrics.service");
-
-function validateText(text) {
-  if (!text || typeof text !== "string") return "text is required and must be a string";
-  if (text.length < 30) return "text must be at least 30 characters";
-  if (text.length > 15000) return "text must be 15000 characters or less";
-  return "";
-}
-
-function normalizeSource(source) {
-  return source === "google" ? "google" : "wikipedia";
-}
-
-function labelFromScore(score) {
-  if (score >= 70) return "high";
-  if (score >= 40) return "medium";
-  return "low";
-}
+const { validateText } = require("../utils/validation");
+const { normalizeSource, labelFromScore, buildVerdict } = require("../utils/textProcessing");
+const { analyzeWithWeb } = require("../services/analyzer.service");
 
 function buildSentenceComparisonResponse(text1, text2, summaryText) {
   const metrics = compareAllMetrics(text1, text2);
@@ -53,7 +39,12 @@ function buildSentenceComparisonResponse(text1, text2, summaryText) {
       similarity: match.similarity,
     })),
     overallSimilarity,
-    verdict: summaryText(score),
+    verdict: buildVerdict(
+      score,
+      "High overlap between original and suspect documents.",
+      "Moderate overlap detected; review both documents manually.",
+      "Low overlap between uploaded documents."
+    ),
   };
 }
 
@@ -103,12 +94,7 @@ async function compareUploadedDocuments(req, res) {
       comparison: buildSentenceComparisonResponse(
         originalText,
         suspectText,
-        (score) =>
-          score >= 70
-            ? "High overlap between original and suspect documents."
-            : score >= 40
-              ? "Moderate overlap detected; review both documents manually."
-              : "Low overlap between uploaded documents.",
+        null // verdict built internally now
       ),
     });
   } catch (err) {
@@ -130,12 +116,7 @@ async function compareTextDocuments(req, res) {
     comparison: buildSentenceComparisonResponse(
       originalText,
       suspectText,
-      (score) =>
-        score >= 70
-          ? "High overlap between original and suspect texts."
-          : score >= 40
-            ? "Moderate overlap detected; review both texts manually."
-            : "Low overlap between provided texts.",
+      null // verdict built internally now
     ),
   });
 }
@@ -181,10 +162,28 @@ function generatePlagiarismReport(req, res) {
   return null;
 }
 
+async function checkWebPlagiarism(req, res) {
+  try {
+    const { text } = req.body || {};
+    const error = validateText(text);
+    if (error) return res.status(400).json({ error });
+
+    const results = await analyzeWithWeb(text);
+
+    res.json({
+      totalMatches: results.length,
+      results,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
 module.exports = {
   detectPlagiarismFromText,
   detectPlagiarismFromFile,
   compareUploadedDocuments,
   compareTextDocuments,
   generatePlagiarismReport,
+  checkWebPlagiarism,
 };

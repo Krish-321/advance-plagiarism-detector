@@ -1,4 +1,3 @@
-const crypto = require("crypto");
 const mongoose = require("mongoose");
 const { analyzePlagiarism } = require("../services/plagiarism/plagiarism.service");
 const { analyzeAiLikelihood } = require("../services/ai/aiDetection.service");
@@ -6,23 +5,8 @@ const { riskSummary } = require("../utils/scoring");
 const { Analysis } = require("../models/analysis.model");
 const { parseFileToText } = require("../services/fileParser.service");
 const { pushAnalysis, getMemoryHistory } = require("../services/analysisStore.service");
-
-function hashText(text) {
-  return crypto.createHash("sha256").update(text).digest("hex");
-}
-
-function validateText(text) {
-  if (!text || typeof text !== "string") {
-    return "text is required and must be a string";
-  }
-  if (text.length < 30) {
-    return "text must be at least 30 characters";
-  }
-  if (text.length > 10000) {
-    return "text must be 10000 characters or less";
-  }
-  return "";
-}
+const { validateText } = require("../utils/validation");
+const { hashText } = require("../utils/textProcessing");
 
 async function runAnalysis(text) {
   const plagiarism = await analyzePlagiarism(text);
